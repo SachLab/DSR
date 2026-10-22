@@ -83,26 +83,6 @@ run names, and `scripts/train.sh` holds the cluster-specific settings. New
 runs are seeded with their run index (`--seed`); the published runs were
 unseeded.
 
-### Details of the published runs
-
-- Every method resamples only the particle sets whose effective sample size
-  is below $N/2$, in training and in evaluation.
-- Each per-particle log-density (transition, proposal and observation) is
-  clamped below at $-50$ for SMNR = 10 dB and $-100$ otherwise, in training
-  and in the evaluation filter.
-- DSR and EROT clamp the gradient with respect to the transport plan to
-  $[-1, 1]$. EROT runs in float64 with $\varepsilon$-scaling and early
-  stopping; its Sinkhorn loop stops after about 15 of the at most 100
-  iterations.
-- The linear Gaussian SSM uses `proposal_model = None`: a second,
-  separately learned linear model as the proposal, which ignores $y_t$
-  (not the bootstrap proposal).
-- CharacterTrajectories: only trajectories with at least 178 samples give a
-  window, so training uses 526 windows (letters a, m, o, q, w, z) and the
-  reported NMSE uses 10 windows of the letter m.
-- The logged gradient norm is the proposal network's, before clipping.
-  Training times include the per-epoch validation and test passes.
-
 ## Reproducing the results
 
 **Main paper**
@@ -124,7 +104,7 @@ unseeded.
 | Effective number of ancestors, $L_2$ distance, weight on the hard ancestor, argmax agreement | `python -m appendix.empirical_analysis.relaxation_metrics --output relaxation_metrics.json`, then `python -m appendix.empirical_analysis.plot_relaxation_metrics --results relaxation_metrics.json` | |
 | Bias and variance of DSR estimates | `python -m appendix.dsr_bias_variance` | ✓ |
 | Ablations ($\tau$, $N$, sorting, annealing, EROT $\varepsilon$) | `bash scripts/run_paper.sh appendix/ablations/*/*.gin` | |
-| Inter-modal mass (`--axis first`, the published table; `last` and `random` separate the modes along other directions) | `python -m appendix.intermodal_mass --axis random` | ✓ |
+| Inter-modal mass (`--axis first`, the published table; `last` and `random` separate the modes along other directions) | `python -m appendix.intermodal_mass` | ✓ |
 | Marginal likelihood | `python -m appendix.marginal_likelihood --runs DSR=runs/linear/dsr_10db,...` | |
 | Comparison against unbiased VSMC gradients | `python -m appendix.vsmc_gradient_bias` | ✓ |
 
