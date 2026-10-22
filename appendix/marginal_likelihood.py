@@ -25,6 +25,7 @@ import argparse
 import math
 import pathlib
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 
@@ -199,7 +200,10 @@ def load_transition(ckpt_path: str) -> tuple[torch.Tensor, torch.Tensor]:
 
 
 def load_test_data(
-    num_samples: int = 100, signal_length: int = 100, smnr_db: float = 10.0
+    num_samples: int = 100,
+    signal_length: int = 100,
+    smnr_db: float = 10.0,
+    seed: int | None = 0,
 ) -> tuple[torch.Tensor, ...]:
     """Test observations and the true model of LinearSSMRotationalDataset.
 
@@ -207,12 +211,16 @@ def load_test_data(
         num_samples: Number of test sequences to generate.
         signal_length: Number of time steps of each test sequence.
         smnr_db: Signal-to-measurement noise ratio of the observations in dB.
+        seed: numpy seed of the test sequences (the published table used
+            unseeded sequences); None leaves the global state as it is.
 
     Returns:
         y, A, Ce, Cw, mu0, P0, where (mu0, P0) is the initial state of the
         dataset's own Kalman filter, so evaluation uses the same prior as
         the training labels.
     """
+    if seed is not None:
+        np.random.seed(seed)
     ds = dataset_lib.LinearSSMRotationalDataset(
         num_samples=num_samples, signal_length=signal_length, smnr_db=smnr_db
     )
@@ -318,10 +326,12 @@ def compare(
         num_samples: Number of test sequences.
         signal_length: Length of the test sequences.
         smnr_db: SMNR of the test sequences.
-        seed: Random seed of the evaluation particle filter.
+        seed: Random seed of the test sequences and of the evaluation filter.
         train_seeds: Run indices (training seeds) to average over.
     """
-    y, A, Ce, Cw, mu0, P0 = load_test_data(num_samples, signal_length, smnr_db)
+    y, A, Ce, Cw, mu0, P0 = load_test_data(
+        num_samples, signal_length, smnr_db, seed=seed
+    )
     exact_true = kalman_loglik(y, A, Ce, Cw, m0=mu0, P0=P0)
     print(
         f'true model, exact     {exact_true.mean():9.3f} ±'

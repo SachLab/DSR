@@ -203,6 +203,12 @@ def count_correlation(
 ) -> float:
     """Pearson correlation of hard SR and DSR offspring counts per ancestor.
 
+    Only the column sums of the plan enter, so the metric cannot tell which
+    resampled particle receives which ancestors: shuffling the rows leaves it
+    unchanged, and the uninformative plan T[j, i] = w_i already scores about
+    0.95. Kept for the published JSON; ancestor_mass and argmax_agreement
+    measure the per-particle agreement with hard SR.
+
     Args:
         ancestors: Hard systematic resampling ancestor indices (N,).
         transport: Transport plan (N, N); row j holds the ancestor weights of
@@ -220,6 +226,39 @@ def count_correlation(
         (hc * sc).sum()
         / (torch.sqrt((hc**2).sum()) * torch.sqrt((sc**2).sum()) + 1e-10)
     ).item()
+
+
+def ancestor_mass(ancestors: torch.Tensor, transport: torch.Tensor) -> float:
+    """Mean weight that each resampled particle puts on its hard SR ancestor.
+
+    1 for hard SR; 1 / N for a plan that ignores the ancestors.
+
+    Args:
+        ancestors: Hard SR ancestor indices (N,), in the order of the plan.
+        transport: Transport plan (N, N); row j holds the ancestor weights of
+            the resampled particle j.
+
+    Returns:
+        mean_j T[j, a_j].
+    """
+    rows = torch.arange(len(ancestors))
+    return transport[rows, ancestors].mean().item()
+
+
+def argmax_agreement(
+    ancestors: torch.Tensor, transport: torch.Tensor
+) -> float:
+    """Fraction of resampled particles whose largest weight is on the hard SR ancestor.
+
+    Args:
+        ancestors: Hard SR ancestor indices (N,), in the order of the plan.
+        transport: Transport plan (N, N); row j holds the ancestor weights of
+            the resampled particle j.
+
+    Returns:
+        mean_j 1(argmax_i T[j, i] = a_j).
+    """
+    return (transport.argmax(dim=1) == ancestors).float().mean().item()
 
 
 def mean_distance(x: torch.Tensor, y: torch.Tensor) -> float:
@@ -247,10 +286,14 @@ def plan_metrics(
         ancestors: Hard SR ancestor indices (N,), in the same order.
 
     Returns:
-        {'correlation', 'l2', 'eff_ancestors'}.
+        {'correlation', 'l2', 'eff_ancestors', 'ancestor_mass',
+        'argmax_agreement'}. Only eff_ancestors is meaningful for EROT, whose
+        resampled particle j has no comb point u_j to pair with a_j.
     """
     return {
         'correlation': count_correlation(ancestors, transport),
         'l2': mean_distance(transport @ particles, particles[ancestors]),
         'eff_ancestors': effective_ancestors(transport),
+        'ancestor_mass': ancestor_mass(ancestors, transport),
+        'argmax_agreement': argmax_agreement(ancestors, transport),
     }

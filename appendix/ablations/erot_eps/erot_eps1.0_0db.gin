@@ -1,6 +1,6 @@
 # Appendix, EROT regularization at low SNR (eps = 0.5 is configs/lorenz63/erot_0db.gin).
 # Lorenz-63 with the 8x8 camera observation map, SMNR = 0 dB.
-# EROT (eps = 1.0, 100 Sinkhorn iterations).
+# EROT (eps = 1.0, at most 100 Sinkhorn iterations).
 
 SMNR_DB = 0
 

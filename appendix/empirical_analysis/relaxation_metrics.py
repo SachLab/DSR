@@ -1,9 +1,13 @@
 """How closely DSR and EROT transport plans follow hard systematic resampling.
 
 Paper appendix "Empirical Analysis of the DSR Relaxation": the effective number
-of ancestors, the correlation of offspring counts and the per-particle L2
-distance to hard SR, for DSR with and without Morton sorting and for EROT.
-Used by plot_relaxation_metrics.py. From the repository root:
+of ancestors, the per-particle L2 distance to hard SR, the mean weight on the
+hard SR ancestor and the argmax agreement with hard SR, for DSR with Morton
+sorting ('morton') and on the filter's own, unsorted particle order
+('unsorted'; the paper's "random ordering"), and N_eff for EROT. The offspring-
+count correlation is kept for the published JSON only (see
+oracle_filter.count_correlation). Used by plot_relaxation_metrics.py. From the
+repository root:
 
     python -m appendix.empirical_analysis.relaxation_metrics \
         --output relaxation_metrics.json
@@ -127,9 +131,17 @@ def print_results(num_particles: int, results) -> None:
         num_particles: Number of particles of the particle filter.
         results: Output of relaxation_metrics for that number of particles.
     """
+    columns = (
+        ('eff_ancestors', 'N_eff'),
+        ('l2', 'L2'),
+        ('ancestor_mass', 'ancestor mass'),
+        ('argmax_agreement', 'argmax agree'),
+        ('correlation', 'count corr'),
+    )
     print(f'\nN = {num_particles}')
     print(
-        f"{'tau':>6}  {'method':<9}{'N_eff':>16}{'correlation':>18}{'L2':>18}"
+        f"{'tau':>6}  {'method':<9}"
+        + ''.join(f'{label:>18}' for _, label in columns)
     )
     for tau, methods in results.items():
         for method, metrics in methods.items():
@@ -137,7 +149,7 @@ def print_results(num_particles: int, results) -> None:
                 f"{metrics[m]['mean']:8.4f} +- {metrics[m]['std']:.4f}"
                 if m in metrics
                 else ''
-                for m in ('eff_ancestors', 'correlation', 'l2')
+                for m, _ in columns
             ]
             print(f'{tau:>6}  {method:<9}' + ''.join(f'{c:>18}' for c in cells))
 

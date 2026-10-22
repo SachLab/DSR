@@ -1,6 +1,6 @@
 # Main paper, Table 2 (Lorenz-63).
 # Lorenz-63 with the 8x8 camera observation map, SMNR = 10 dB.
-# EROT (eps = 0.5, 100 Sinkhorn iterations).
+# EROT (eps = 0.5, at most 100 Sinkhorn iterations).
 
 SMNR_DB = 10
 

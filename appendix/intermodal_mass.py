@@ -3,14 +3,55 @@
 Paper appendix "Multimodal Posteriors and Inter-modal Mass", Table 13. From the
 repository root:
 
-    python -m appendix.intermodal_mass
+    python -m appendix.intermodal_mass                # published: --axis first
+    python -m appendix.intermodal_mass --axis last
+    python -m appendix.intermodal_mass --axis random
+
+--axis sets the direction that separates the modes. `first` (coordinate 0) is
+the published setting; it is the best case for Morton sorting, because
+morton_sort ranks coordinate 0 most significant, so the first bit of every
+Morton key is the mode label for any d. `last` and `random` (a random rotation
+per repetition) remove that alignment. Hard SR, soft resampling and unsorted
+DSR do not depend on the direction.
 """
+
+import argparse
 
 import torch
 
 import resampling as resampling_lib
 
 METHODS = ('hard', 'soft', 'dsr_sorted', 'dsr_unsorted', 'erot')
+AXES = ('first', 'last', 'random')
+
+
+def orient(
+    particles: torch.Tensor, axis: str
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Turns particles separated along coordinate 0 to the separation `axis`.
+
+    Args:
+        particles: Particles (n_reps, N, dim) separated along coordinate 0.
+        axis: 'first' (unchanged), 'last' (coordinate 0 moved to the end) or
+            'random' (a random rotation per repetition).
+
+    Returns:
+        The particles and the unit separation direction (n_reps, dim).
+    """
+    n_reps, _, dim = particles.shape
+    eye = torch.eye(dim, device=particles.device, dtype=particles.dtype)
+    if axis == 'first':
+        return particles, eye[0].expand(n_reps, dim)
+    if axis == 'last':
+        return particles.roll(-1, dims=-1), eye[-1].expand(n_reps, dim)
+    if axis == 'random':
+        gaussian = torch.randn(
+            n_reps, dim, dim, device=particles.device, dtype=particles.dtype
+        )
+        rotation, _ = torch.linalg.qr(gaussian)
+        # x @ R moves e_0 to the row R[0]: (x @ R) . R[0] = x_0.
+        return particles @ rotation, rotation[:, 0, :]
+    raise ValueError(f'Unknown axis: {axis}')
 
 
 def two_gaussian_target(
@@ -98,11 +139,13 @@ def intermodal_mass(
     n_reps: int = 10000,
     seed: int = 0,
     device: str = 'cpu',
+    axis: str = 'first',
 ) -> dict[str, dict[str, float]]:
-    """Resampled mass in the band |x_0| < gap_frac * sep / 2 between the modes.
+    """Resampled mass in the band |x . v| < gap_frac * sep / 2 between the modes.
 
-    The target has essentially no mass in the band, so copy-based schemes
-    (hard SR, soft) place none there and any mass is due to the relaxation.
+    v is the unit direction that separates the modes. The target has
+    essentially no mass in the band, so copy-based schemes (hard SR, soft)
+    place none there and any mass is due to the relaxation.
 
     Args:
         dim: Dimension of the particles.
@@ -118,6 +161,8 @@ def intermodal_mass(
         n_reps: Number of independent particle sets, each resampled once.
         seed: Random seed for the particle sets and the resampling draws.
         device: Torch device to run on.
+        axis: Direction that separates the modes, see orient; 'first'
+            reproduces the published table bit for bit.
 
     Returns:
         {method: {'mass_mean', 'mass_std'}} over the repetitions.
@@ -126,6 +171,7 @@ def intermodal_mass(
     particles, weights = two_gaussian_target(
         n_reps, N, dim, sep, sigma, frac_left, device
     )
+    particles, direction = orient(particles, axis)
 
     # The order of the calls fixes the random stream each method draws from.
     outputs = {'hard': hard_systematic(particles, weights)}
@@ -146,7 +192,8 @@ def intermodal_mass(
     results = {}
     for name, (x, w) in outputs.items():
         w = w.detach() / w.detach().sum(1, keepdim=True)
-        mass = (w * (x.detach()[..., 0].abs() < gap)).sum(1)
+        projection = torch.einsum('bnd,bd->bn', x.detach(), direction)
+        mass = (w * (projection.abs() < gap)).sum(1)
         results[name] = {
             'mass_mean': float(mass.mean()),
             'mass_std': float(mass.std()),
@@ -182,5 +229,23 @@ def sweep_dimensions(
     return rows
 
 
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--axis', choices=AXES, default='first')
+    parser.add_argument(
+        '--dims', type=int, nargs='+', default=[1, 2, 3, 5, 10]
+    )
+    parser.add_argument('--n_reps', type=int, default=10000)
+    parser.add_argument('--seed', type=int, default=0)
+    args = parser.parse_args()
+    print(f'Separation axis: {args.axis}')
+    sweep_dimensions(
+        dims=tuple(args.dims),
+        axis=args.axis,
+        n_reps=args.n_reps,
+        seed=args.seed,
+    )
+
+
 if __name__ == '__main__':
-    sweep_dimensions()
+    main()

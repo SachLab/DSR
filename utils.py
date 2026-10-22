@@ -138,25 +138,35 @@ def empirical_gaussian_kl(
     particles: torch.Tensor,
     kf_mean: torch.Tensor,
     kf_cov: torch.Tensor,
+    weights: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """KL(empirical particle Gaussian || Kalman posterior Gaussian), averaged over batch.
 
-    Fits a Gaussian to the (equally-weighted) resampled particles and computes
-    KL divergence against the Kalman filter posterior.  This penalises both a
-    wrong mean and a wrong covariance, making it a fairer quality metric than
-    plain log-likelihood (which would reward collapsing to the mean).
+    Fits a Gaussian to the weighted particles and computes the KL divergence
+    against the Kalman filter posterior of the SAME time step. This penalises
+    both a wrong mean and a wrong covariance, making it a fairer quality metric
+    than plain log-likelihood (which would reward collapsing to the mean).
 
     Args:
-        particles: (B, N, D) — resampled particles (uniform weights assumed).
-        kf_mean:   (B, D)    — Kalman posterior mean at this time step.
-        kf_cov:    (B, D, D) — Kalman posterior covariance at this time step.
+        particles: (B, N, D) — particles.
+        kf_mean:   (B, D)    — Kalman posterior mean at the particles' time step.
+        kf_cov:    (B, D, D) — Kalman posterior covariance at that time step.
+        weights:   (B, N)    — normalized particle weights; uniform if None.
+            The covariance uses the unbiased weighted estimator, which reduces
+            to the usual 1 / (N - 1) normalization for uniform weights.
     Returns:
         Scalar mean KL(particle_gaussian || kalman_posterior) over the batch.
     """
     B, N, D = particles.shape
-    mean_p = particles.mean(dim=1)                               # (B, D)
+    if weights is None:
+        weights = torch.full(
+            (B, N), 1.0 / N, device=particles.device, dtype=particles.dtype
+        )
+    weights = weights / weights.sum(dim=1, keepdim=True)
+    mean_p = torch.einsum('bn,bni->bi', weights, particles)      # (B, D)
     diff = particles - mean_p.unsqueeze(1)                       # (B, N, D)
-    cov_p = torch.einsum('bni,bnj->bij', diff, diff) / (N - 1)  # (B, D, D)
+    norm = (1.0 - (weights**2).sum(dim=1)).clamp(min=1e-12)      # (B,)
+    cov_p = torch.einsum('bn,bni,bnj->bij', weights, diff, diff) / norm[:, None, None]
 
     # Symmetrize (eliminates floating-point asymmetry) then add relative jitter.
     cov_p = (cov_p + cov_p.transpose(-1, -2)) / 2

@@ -161,7 +161,7 @@ def plot_l2_distance(results, particle_counts):
             [0], [0], color='0.4', linestyle='-', label='Morton'
         ),
         matplotlib.lines.Line2D(
-            [0], [0], color='0.4', linestyle='--', alpha=0.8, label='Random'
+            [0], [0], color='0.4', linestyle='--', alpha=0.8, label='Unsorted'
         ),
     ]
     ax.legend(

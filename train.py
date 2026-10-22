@@ -18,6 +18,7 @@ import time
 
 import gin
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.distributions
 import torch.nn
@@ -105,7 +106,10 @@ class TrainingLoop:
 
         Args:
             proposal_model: Proposal model class, q(x_t | x_(t-1), y_t); if
-                None, the transition model is used as a bootstrap proposal.
+                None, a second, separately initialized instance of the
+                transition model class is used as the proposal. It is trained
+                jointly but does not see y_t; it is NOT the bootstrap proposal,
+                which would share the transition model's parameters.
             transition_model: Transition model class, p(x_t | x_(t-1)).
             dataset_cls: Training dataset class; also builds the validation
                 set.
@@ -266,7 +270,8 @@ class TrainingLoop:
             hard_systematic_resampling: Resample with hard systematic
                 resampling instead of the configured method.
             posterior_mean: Kalman posterior means (B, T, D), to log the KL
-                of the particles to the posterior; None skips it.
+                of the weighted particles after resampling to the posterior of
+                the same time step; None skips it.
             posterior_cov: Kalman posterior covariances (B, T, D, D).
 
         Returns:
@@ -306,12 +311,22 @@ class TrainingLoop:
                 morton_bits=self._morton_bits,
                 ot_eps=self._ot_eps,
             )
-            if posterior_mean is not None and posterior_cov is not None:
+            if (
+                posterior_mean is not None
+                and posterior_cov is not None
+                and t >= 2
+            ):
+                # After resampling, the weighted particles approximate
+                # p(x_(t-1) | y_(1:t-1)), so they are compared with the Kalman
+                # posterior of the same index t - 1 (weights are uniform for the
+                # sets that were just resampled). t = 1 is skipped: the initial
+                # particles have not seen an observation yet.
                 with torch.no_grad():
                     kl = utils_lib.empirical_gaussian_kl(
                         particles,
-                        posterior_mean[:, t, :].to(device),
-                        posterior_cov[:, t, :, :].to(device),
+                        posterior_mean[:, t - 1, :].to(device),
+                        posterior_cov[:, t - 1, :, :].to(device),
+                        weights=weights,
                     )
                 if kl is not None:
                     kl_sum += kl.item()
@@ -707,8 +722,20 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--save_path', type=str, required=True)
     parser.add_argument('--gin_path', type=str, required=True)
+    parser.add_argument(
+        '--seed',
+        type=int,
+        default=None,
+        help=(
+            'Seeds numpy (data generation) and torch (filter, training); the'
+            ' published runs were unseeded.'
+        ),
+    )
     args = parser.parse_args()
 
+    if args.seed is not None:
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
     os.makedirs(args.save_path, exist_ok=True)
     gin.parse_config_file(args.gin_path)
     gin.finalize()

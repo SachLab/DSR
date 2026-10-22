@@ -39,9 +39,13 @@ def morton_sort(
     """Sorts particles along a Morton (Z-order) space-filling curve.
 
     Each coordinate is discretized to 2^bits cells over the range of the
-    particle set and the bits are interleaved. When bits * D > 62, the Morton
-    index is split into 62-bit chunks that are sorted with an LSD radix sort,
-    so there is no limit on bits or D.
+    particle set and the bits are interleaved, most significant bit plane
+    first. Within a bit plane, coordinate 0 is the most significant, so with
+    c_k^(d) the k-th bit (k = 0 least significant) of coordinate d = 0, ..., D-1,
+    the key is z = sum_k sum_d c_k^(d) 2^(k D + D - 1 - d). In particular, the
+    first coordinate's top bit alone decides the first split of the curve.
+    When bits * D > 62, the Morton index is split into 62-bit chunks that are
+    sorted with an LSD radix sort, so there is no limit on bits or D.
 
     Args:
         particles: Particle sets (B, N, D).
@@ -198,6 +202,12 @@ def _dsr(
     With CDF F and comb u_j = u_0 + j / N, particle j is the convex combination
     with weights T[j, i] proportional to
     sigmoid((u_j - F_(i-1)) / tau) - sigmoid((u_j - F_i) / tau).
+
+    If requires_grad, the gradient of the loss with respect to T is clamped
+    elementwise to [-1, 1] in the backward pass, as for EROT (Corenflos et al.,
+    2021). The clamp acts on the gradient of the batch-mean loss, so how often
+    it binds depends on the batch size. It is skipped when T carries no
+    gradient, e.g. under torch.no_grad().
     """
     B, N, _ = particles.shape
     device = particles.device
@@ -211,7 +221,7 @@ def _dsr(
         (u.unsqueeze(2) - cdf_prev.unsqueeze(1)) / tau
     ) - torch.sigmoid((u.unsqueeze(2) - cdf.unsqueeze(1)) / tau)
     transport = soft / (soft.sum(dim=2, keepdim=True) + 1e-8)
-    if requires_grad:
+    if requires_grad and transport.requires_grad:
         transport.register_hook(lambda grad: torch.clamp(grad, -1.0, 1.0))
     return torch.bmm(transport, particles), torch.ones(B, N, device=device) / N
 
@@ -228,8 +238,8 @@ def resampler_systematic(
         particles: Particle sets (B, N, D).
         weights: Normalized particle weights (B, N).
         tau: Temperature of the relaxation.
-        requires_grad: Clamp the gradient of the transport plan to [-1, 1];
-            requires that the weights carry gradients.
+        requires_grad: Clamp the gradient of the transport plan to [-1, 1]
+            (see _dsr); used in all training runs.
 
     Returns:
         Resampled particles (B, N, D) and uniform weights (B, N).
@@ -254,8 +264,8 @@ def resampler_systematic_morton(
         weights: Normalized particle weights (B, N).
         tau: Temperature of the relaxation.
         bits: Grid resolution per dimension of the Morton curve.
-        requires_grad: Clamp the gradient of the transport plan to [-1, 1];
-            requires that the weights carry gradients.
+        requires_grad: Clamp the gradient of the transport plan to [-1, 1]
+            (see _dsr); used in all training runs.
 
     Returns:
         Resampled particles (B, N, D), in Morton order, and uniform weights
@@ -328,7 +338,11 @@ def sinkhorn_loop(
 
     Epsilon starts at particles_diameter^2 and shrinks by scaling^2 per
     iteration down to `epsilon`; the iterations stop when the potentials
-    change less than `threshold`, or after max_iter.
+    change less than `threshold`, or after max_iter. As in the reference
+    implementation of Corenflos et al. (2021), the loop ends for the whole
+    batch as soon as one particle set has converged (torch.all over the
+    continue flags); with the settings of the paper this is after about 15
+    iterations, far below max_iter = 100.
 
     Args:
         log_alpha: Log-weights of the source (B, N).
@@ -589,6 +603,11 @@ def resampler_ot(
     device: str | torch.device | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """EROT resampling of Corenflos et al. (2021).
+
+    The transport plan is computed in float64 (the rescaling in
+    transport_function promotes it) and the gradient of the loss with respect
+    to the plan is clamped elementwise to [-1, 1], as in the reference
+    implementation.
 
     Args:
         particles: Particle sets (B, N, D).

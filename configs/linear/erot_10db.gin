@@ -1,7 +1,8 @@
 # Main paper, Table 1 (linear Gaussian SSM).
 # Linear Gaussian SSM: 4-d damped block rotation (theta = 0.3, 0.5), Ce = 0.1 I,
-# full-state observations, bootstrap proposal, SMNR = 10 dB.
-# EROT (eps = 0.5, 100 Sinkhorn iterations).
+# full-state observations, SMNR = 10 dB. proposal_model = None: the proposal is a
+# second, separately learned LinearTransitionModel that ignores y_t (not bootstrap).
+# EROT (eps = 0.5, at most 100 Sinkhorn iterations).
 
 SMNR_DB = 10
 

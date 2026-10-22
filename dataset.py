@@ -288,9 +288,17 @@ class LorenzAttractor(BaseDynamicalDataset):
 class CharacterTrajectoriesDataset(BaseDynamicalDataset):
     """CharacterTrajectories pen-tip sequences with added Gaussian noise.
 
-    The sequences are 3-dimensional pen-tip positions, and the noise variance
-    of each dimension is set by the SMNR. The learned state can be larger;
-    `state_to_observation` observes its last 3 dimensions.
+    The UCI file holds 2858 trajectories of 20 characters, ordered by
+    character in two blocks (indices 0-1432 and 1433-2857). The 3 channels
+    are the pen-tip x and y velocities and the pen-tip force. In this
+    shifted version all trajectories of one character share a length
+    (109-205 samples). Sequences are non-overlapping windows of
+    signal_length samples, so a trajectory shorter than signal_length
+    contributes nothing: with signal_length = 178, 'train' yields 526
+    windows (letters a, m, o, q, w, z), and the first 10 windows of 'valid'
+    are all the letter m. The noise variance of each channel is set by the
+    SMNR. The learned state can be larger; `state_to_observation` observes
+    its last 3 dimensions.
     """
 
     def __init__(

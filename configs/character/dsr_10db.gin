@@ -1,4 +1,7 @@
-# Main paper, Table 3 (CharacterTrajectories).
+# Main paper, Table 4 (CharacterTrajectories).
+# Data: windows of 178 samples, so only trajectories with >= 178 samples are used:
+# training = the 526 such trajectories in mixout[:2000] (letters a, m, o, q, w, z);
+# reported NMSE = the first 10 such trajectories in mixout[2000:2400] (all the letter m).
 # CharacterTrajectories, 9-d augmented state, SMNR = 10 dB.
 # DSR (tau = 0.1, Morton sorting).
 

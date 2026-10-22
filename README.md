@@ -13,8 +13,8 @@ Fredrik Cumlin · Saikat Chatterjee
 
 *Transport plans of hard systematic resampling (left), DSR with $\tau = 0.1$
 (middle) and EROT (right) for a particle filter of Lorenz-63 with $N = 25$
-particles. DSR preserves the banded, CDF-ordered structure of systematic
-resampling.*
+particles, all in the filter's particle order (no Morton sorting). DSR
+preserves the banded, CDF-ordered structure of systematic resampling.*
 
 </div>
 
@@ -34,8 +34,10 @@ $$
 
 DSR converges to systematic resampling as $\tau \to 0^+$. Before the CDF is
 formed, the particles are sorted along a Morton space-filling curve, so that
-neighbours in the CDF are also neighbours in state space. We use
-$\tau = 0.1$ throughout.
+neighbours in the CDF are also neighbours in state space (within each bit
+plane, coordinate 0 is the most significant). We use $\tau = 0.1$ throughout.
+In training, the gradient with respect to $T$ is clamped elementwise to
+$[-1, 1]$, as in the EROT implementation of Corenflos et al. (2021).
 
 ```python
 import torch
@@ -77,7 +79,29 @@ python analysis/summarize_runs.py runs/lorenz63/dsr_10db --num_runs 10
 
 On a Slurm cluster, `bash scripts/run_paper.sh` submits every configuration
 with 10 runs each; `NUM_RUNS` and `PREFIX` change the number of runs and the
-run names, and `scripts/train.sh` holds the cluster-specific settings.
+run names, and `scripts/train.sh` holds the cluster-specific settings. New
+runs are seeded with their run index (`--seed`); the published runs were
+unseeded.
+
+### Details of the published runs
+
+- Every method resamples only the particle sets whose effective sample size
+  is below $N/2$, in training and in evaluation.
+- Each per-particle log-density (transition, proposal and observation) is
+  clamped below at $-50$ for SMNR = 10 dB and $-100$ otherwise, in training
+  and in the evaluation filter.
+- DSR and EROT clamp the gradient with respect to the transport plan to
+  $[-1, 1]$. EROT runs in float64 with $\varepsilon$-scaling and early
+  stopping; its Sinkhorn loop stops after about 15 of the at most 100
+  iterations.
+- The linear Gaussian SSM uses `proposal_model = None`: a second,
+  separately learned linear model as the proposal, which ignores $y_t$
+  (not the bootstrap proposal).
+- CharacterTrajectories: only trajectories with at least 178 samples give a
+  window, so training uses 526 windows (letters a, m, o, q, w, z) and the
+  reported NMSE uses 10 windows of the letter m.
+- The logged gradient norm is the proposal network's, before clipping.
+  Training times include the per-epoch validation and test passes.
 
 ## Reproducing the results
 
@@ -86,19 +110,21 @@ run names, and `scripts/train.sh` holds the cluster-specific settings.
 | Result | Command | Bit-exact |
 |---|---|:---:|
 | Linear Gaussian SSM, Lorenz-63 and CharacterTrajectories, training time | `bash scripts/run_paper.sh configs/*/*.gin`, then `analysis/summarize_runs.py` | |
-| Gradient norms | `python analysis/read_gradient_norms.py` | |
+| Training-time posterior (KLD KF, corrected metric) from the saved checkpoints | `python analysis/posterior_kl.py runs/linear/hard_10db runs/linear/soft_10db runs/linear/erot_10db runs/linear/dsr_10db --num_runs 3` | |
+| Gradient norms (Table 3, Fig. 3; `--experiments` for Table 8) | `python analysis/read_gradient_norms.py` | |
 | Transport plans (Fig. 1) | `python -m appendix.empirical_analysis.transport_maps --taus 0.1` | ✓ |
 | Lorenz-63 and CharacterTrajectories figures | `python analysis/visualize_lorenz.py`, `python analysis/visualize_character.py` | |
+| CharacterTrajectories recordings used for training and evaluation | `python analysis/character_windows.py` | ✓ |
 
 **Appendix**
 
 | Result | Command | Bit-exact |
 |---|---|:---:|
 | Transport plans for every $\tau$ | `python -m appendix.empirical_analysis.transport_maps` | ✓ |
-| Effective number of ancestors, correlation, $L_2$ distance | `python -m appendix.empirical_analysis.relaxation_metrics --output relaxation_metrics.json`, then `python -m appendix.empirical_analysis.plot_relaxation_metrics --results relaxation_metrics.json` | |
+| Effective number of ancestors, $L_2$ distance, weight on the hard ancestor, argmax agreement | `python -m appendix.empirical_analysis.relaxation_metrics --output relaxation_metrics.json`, then `python -m appendix.empirical_analysis.plot_relaxation_metrics --results relaxation_metrics.json` | |
 | Bias and variance of DSR estimates | `python -m appendix.dsr_bias_variance` | ✓ |
 | Ablations ($\tau$, $N$, sorting, annealing, EROT $\varepsilon$) | `bash scripts/run_paper.sh appendix/ablations/*/*.gin` | |
-| Inter-modal mass | `python -m appendix.intermodal_mass` | ✓ |
+| Inter-modal mass (`--axis first`, the published table; `last` and `random` separate the modes along other directions) | `python -m appendix.intermodal_mass --axis random` | ✓ |
 | Marginal likelihood | `python -m appendix.marginal_likelihood --runs DSR=runs/linear/dsr_10db,...` | |
 | Comparison against unbiased VSMC gradients | `python -m appendix.vsmc_gradient_bias` | ✓ |
 
